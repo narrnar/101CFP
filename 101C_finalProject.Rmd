@@ -1,0 +1,87 @@
+---
+title: "101C Final Project"
+author: "Daren Sathasivam, Kirtan Bhatt, Derek Diaz, Michael Gureghian"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## From Homework 4
+
+```{r}
+# Using KNN with 10 folds
+# Datasets
+obesity_train <- read.csv("ObesityTrain2.csv") # O.train.C...30.
+obesity_test <- read.csv("ObesityTestNoY2.csv")
+# head(obesity_train, n = 2)
+
+# Function to identify columns except target var
+identify_columns <- function(data, exclude_col = NULL) {
+  numeric_cols <- sapply(data, is.numeric)
+  categorical_cols <- sapply(data, function(x) is.factor(x) || is.character(x))
+  # Assign numeric or categorical
+  if (!is.null(exclude_col) && exclude_col %in% names(data)) {
+    numeric_cols <- numeric_cols[-which(names(data) == exclude_col)]
+    categorical_cols <- categorical_cols[-which(names(data) == exclude_col)]
+  }
+  list(numeric = numeric_cols, categorical = categorical_cols)
+}
+# For target var in training
+cols_train <- identify_columns(obesity_train, "O.train.C...30.")
+
+# Function to impute missing values
+# Median for numeric --- Most frequent for categorical
+impute_median_mode <- function(data, numeric_cols, categorical_cols) {
+  # Num stuff
+  for (col in names(data)[numeric_cols]) {
+    if (any(is.na(data[[col]]))) {
+      # insert median at numeric NA
+      data[[col]][is.na(data[[col]])] <- median(data[[col]], na.rm = TRUE)
+    }
+  }
+  # Cat stuff
+  for (col in names(data)[categorical_cols]) {
+    if (any(is.na(data[[col]]))) {
+      # insert mode at categorical NA
+      mode_value <- names(which.max(table(data[[col]])))
+      data[[col]][is.na(data[[col]])] <- mode_value
+    }
+  }
+  data[categorical_cols] <- lapply(data[categorical_cols], factor) # factor
+  return(data)
+}
+obesity_train_imputed <- impute_median_mode(obesity_train, cols_train$numeric, cols_train$categorical)
+obesity_test_imputed <- impute_median_mode(obesity_test, cols_train$numeric, cols_train$categorical)
+
+Y_train <- obesity_train_imputed$O.train.C...30.
+X_train <- obesity_train_imputed[, -which(names(obesity_train_imputed) == "O.train.C...30.")]
+
+# Scale for KNN --- Week-4 Discussion example for train() and preProcess
+numeric_cols <- sapply(obesity_train_imputed, is.numeric)
+preProcValues <- preProcess(obesity_train_imputed[, numeric_cols], method = c("center", "scale"))
+X_train_scaled <- predict(preProcValues, obesity_train_imputed[, numeric_cols])
+X_test_scaled <- predict(preProcValues, obesity_test_imputed[, numeric_cols])
+obesity_train_imputed[, numeric_cols] <- X_train_scaled
+obesity_test_imputed[, numeric_cols] <- X_test_scaled
+
+# Model
+set.seed(1)
+train_control <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+knn_model <- train(O.train.C...30. ~ ., data = obesity_train_imputed, method = "knn", tuneGrid = data.frame(k = 5), trControl = train_control) # preProcess = c("center","scale") not knitting??
+
+# Predictions
+predictions_knn <- predict(knn_model, newdata = obesity_test_imputed)
+length(predictions_knn)
+
+# CSV to submit
+results <- data.frame(ID = seq(1, length(predictions_knn)), ObStatus = predictions_knn) # won't let me submit without 'ID'
+head(results)
+dim(results)
+write.csv(results, "ObesitySol.csv", row.names = FALSE)
+
+# dim(obesity_sample_sol)
+```
+
