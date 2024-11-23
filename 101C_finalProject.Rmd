@@ -12,11 +12,13 @@ knitr::opts_chunk$set(echo = TRUE)
 ## From Homework 4
 
 ```{r}
-# Using KNN with 10 folds
+set.seed(1)
+# Using KNN with k = 5 and 10 fold "CV"
 # Datasets
-obesity_train <- read.csv("ObesityTrain2.csv") # O.train.C...30.
+obesity_train <- read.csv("ObesityTrain2.csv") # ObStatus
 obesity_test <- read.csv("ObesityTestNoY2.csv")
 # head(obesity_train, n = 2)
+
 
 # Function to identify columns except target var
 identify_columns <- function(data, exclude_col = NULL) {
@@ -29,8 +31,9 @@ identify_columns <- function(data, exclude_col = NULL) {
   }
   list(numeric = numeric_cols, categorical = categorical_cols)
 }
-# For target var in training
-cols_train <- identify_columns(obesity_train, "O.train.C...30.")
+# To exclude target var in training
+cols_train <- identify_columns(obesity_train, "ObStatus")
+cols_test <- identify_columns(obesity_test)
 
 # Function to impute missing values
 # Median for numeric --- Most frequent for categorical
@@ -54,10 +57,10 @@ impute_median_mode <- function(data, numeric_cols, categorical_cols) {
   return(data)
 }
 obesity_train_imputed <- impute_median_mode(obesity_train, cols_train$numeric, cols_train$categorical)
-obesity_test_imputed <- impute_median_mode(obesity_test, cols_train$numeric, cols_train$categorical)
+obesity_test_imputed <- impute_median_mode(obesity_test, cols_test$numeric, cols_test$categorical)
 
 Y_train <- obesity_train_imputed$O.train.C...30.
-X_train <- obesity_train_imputed[, -which(names(obesity_train_imputed) == "O.train.C...30.")]
+X_train <- obesity_train_imputed[, -which(names(obesity_train_imputed) == "ObStatus")]
 
 # Scale for KNN --- Week-4 Discussion example for train() and preProcess
 numeric_cols <- sapply(obesity_train_imputed, is.numeric)
@@ -67,21 +70,25 @@ X_test_scaled <- predict(preProcValues, obesity_test_imputed[, numeric_cols])
 obesity_train_imputed[, numeric_cols] <- X_train_scaled
 obesity_test_imputed[, numeric_cols] <- X_test_scaled
 
-# Model
+# --- Model ---
 set.seed(1)
 train_control <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
-knn_model <- train(O.train.C...30. ~ ., data = obesity_train_imputed, method = "knn", tuneGrid = data.frame(k = 5), trControl = train_control) # preProcess = c("center","scale") not knitting??
+knn_model <- train(ObStatus ~ ., data = obesity_train_imputed, method = "knn", tuneGrid = data.frame(k = 5), trControl = train_control)
 
 # Predictions
 predictions_knn <- predict(knn_model, newdata = obesity_test_imputed)
 length(predictions_knn)
-
 # CSV to submit
 results <- data.frame(ID = seq(1, length(predictions_knn)), ObStatus = predictions_knn) # won't let me submit without 'ID'
 head(results)
 dim(results)
-write.csv(results, "ObesitySol.csv", row.names = FALSE)
+# write.csv(results, "ObesitySol.csv", row.names = FALSE)
 
 # dim(obesity_sample_sol)
+
+# Summarize results
+summary(knn_model)
+knn_model$results
+cat("KNN(k = 5) 10-fold Cross Validation accuracy: ", max(knn_model$results$Accuracy), ". \n")
 ```
 
