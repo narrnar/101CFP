@@ -13,12 +13,15 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r}
 set.seed(1)
-# Using KNN with k = 5 and 10 fold "CV"
+
+#########################
+# --- Data Cleaning --- #
+#########################
+
 # Datasets
 obesity_train <- read.csv("ObesityTrain2.csv") # ObStatus
 obesity_test <- read.csv("ObesityTestNoY2.csv")
 # head(obesity_train, n = 2)
-
 
 # Function to identify columns except target var
 identify_columns <- function(data, exclude_col = NULL) {
@@ -62,6 +65,105 @@ obesity_test_imputed <- impute_median_mode(obesity_test, cols_test$numeric, cols
 Y_train <- obesity_train_imputed$O.train.C...30.
 X_train <- obesity_train_imputed[, -which(names(obesity_train_imputed) == "ObStatus")]
 
+# Check if there are any remaining NAs in the training and test datasets
+cat("Remaining NAs in Training Data:\n")
+print(colSums(is.na(obesity_train_imputed)))
+cat("Remaining NAs in Testing Data:\n")
+print(colSums(is.na(obesity_test_imputed)))
+
+
+
+
+
+##############################
+# --- Variable Selection --- #
+##############################
+
+str(obesity_train_imputed)
+# Factor so can be the 'y' in models
+obesity_train_imputed$ObStatus <- as.factor(obesity_train_imputed$ObStatus)
+sum(is.na(obesity_train_imputed$ObStatus)) # to check for NAs
+# Convert factors into dummy variables
+obesity_train_encoded <- model.matrix(ObStatus ~ ., data = obesity_train_imputed)[, -1]  # Drop the intercept column
+# Convert back to a data frame
+obesity_train_encoded <- as.data.frame(obesity_train_encoded)
+# Add the numeric target variable
+obesity_train_encoded$ObStatus_num <- as.numeric(obesity_train_imputed$ObStatus)
+
+
+# --- VIF > 5 indicates multicollinearity --- #
+# Fit the linear model
+full_model <- lm(ObStatus_num ~ ., data = obesity_train_encoded)
+# Check the model summary
+summary(full_model)
+# Calculate VIF
+library(car)
+vif_values <- vif(full_model)
+vif_sorted <- sort(vif_values, decreasing = TRUE)
+print(vif_sorted)
+# Identify high VIF variables
+high_vif_vars <- names(vif_sorted[vif_sorted > 5])
+cat("Variables with high VIF (> 5):", high_vif_vars, "\n")
+
+# --- Exclude High VIF Variables from ^ --- #
+high_vif_vars <- c("CALCSometimes", "CALCno", "CALCFrequently", 
+                   "work_typePrivate", "work_typeGovt_job", 
+                   "work_typeSelf-employed", "work_typeNever_worked")
+obesity_train_no_multicollinearity <- obesity_train_encoded[, !names(obesity_train_encoded) %in% high_vif_vars]
+reduced_model <- lm(ObStatus_num ~ ., data = obesity_train_no_multicollinearity)
+vif_reduced <- vif(reduced_model)
+vif_reduced_sorted <- sort(vif_reduced, decreasing = TRUE)
+print(vif_reduced_sorted)
+remaining_high_vif_vars <- names(vif_reduced_sorted[vif_reduced_sorted > 5])
+cat("Remaining variables with high VIF (> 5):", remaining_high_vif_vars, "\n") # None have high VIF now
+summary(reduced_model)
+
+
+
+
+# --- Correlation Matrix (> 0.7 or < -0.7:: Moderate Correlation) --- #
+# Compute correlation matrix for numeric predictors
+numeric_vars <- names(obesity_train_imputed)[sapply(obesity_train_imputed, is.numeric)]
+cor_matrix <- cor(obesity_train_imputed[, numeric_vars], use = "complete.obs")
+cor_matrix
+highest_correlation <- max(abs(cor_matrix[lower.tri(cor_matrix)]))
+highest_correlation
+# Find highly correlated pairs and exclude self-correlations
+high_corr <- which(abs(cor_matrix) > 0.7, arr.ind = TRUE)
+high_corr <- high_corr[high_corr[, 1] != high_corr[, 2], ]  
+nrow(high_corr) # None to display
+
+head(obesity_train_imputed, n = 2)
+
+# Stepwise using AIC
+library(MASS)
+stepwise_ob_model <- stepAIC(glm(ObStatus ~ ., data = obesity_train_imputed, family = binomial), direction = "both")
+summary(stepwise_ob_model)
+selected_vars <- names(coef(stepwise_ob_model))[-1]
+cat("Variables selected by stepwise AIC with logistic regression:", selected_vars, "\n")
+
+
+# Variable Importance using Random Forest
+library(randomForest)
+rf_model <- randomForest(ObStatus ~ ., data = obesity_train_imputed, importance = TRUE)
+var_importance <- importance(rf_model)
+var_importance_sorted <- var_importance[order(var_importance[, 1], decreasing = TRUE), ]
+print(var_importance_sorted)
+top_vars <- rownames(var_importance_sorted)[1:17]  # Keep top 17 predictors
+cat("Top predictors based on random forest importance:", top_vars, "\n")
+
+# After taking into consideration the VIF, Stepwise, and RF Importance
+selected_numeric <- c("Height", "Age", "FAF", "NCP", "CH2O", "Cholesterol", "avg_glucose_level") # Reduced from 11 to 7
+selected_categorical <- c("Race", "MTRANS", "CAEC", "family_history_with_overweight", "FAVC", "Gender", "SCC", "ever_married") # Reduced from 18 to 8
+selected_predictors <- c(selected_numeric, selected_categorical)
+
+
+
+####################
+# --- Modeling --- #
+####################
+
+
 # Scale for KNN --- Week-4 Discussion example for train() and preProcess
 numeric_cols <- sapply(obesity_train_imputed, is.numeric)
 preProcValues <- preProcess(obesity_train_imputed[, numeric_cols], method = c("center", "scale"))
@@ -71,7 +173,6 @@ obesity_train_imputed[, numeric_cols] <- X_train_scaled
 obesity_test_imputed[, numeric_cols] <- X_test_scaled
 
 # --- Model ---
-set.seed(1)
 train_control <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
 knn_model <- train(ObStatus ~ ., data = obesity_train_imputed, method = "knn", tuneGrid = data.frame(k = 5), trControl = train_control)
 
@@ -90,5 +191,55 @@ dim(results)
 summary(knn_model)
 knn_model$results
 cat("KNN(k = 5) 10-fold Cross Validation accuracy: ", max(knn_model$results$Accuracy), ". \n")
+
+
+### --- AFTER VARIABLE SELECTION --- ###
+
+selected_predictors
+obesity_train_final <- obesity_train_imputed[, c(selected_predictors, "ObStatus")]
+obesity_test_final <- obesity_test_imputed[, selected_predictors]
+
+# --- KNN --- #
+numeric_cols <- sapply(obesity_train_final, is.numeric)
+preProcValues <- preProcess(obesity_train_final[, numeric_cols], method = c("center", "scale"))
+obesity_train_final[, numeric_cols] <- predict(preProcValues, obesity_train_final[, numeric_cols])
+obesity_test_final[, numeric_cols] <- predict(preProcValues, obesity_test_final[, numeric_cols])
+
+set.seed(1)
+train_control <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+knn_model <- train(ObStatus ~ ., data = obesity_train_final, method = "knn", tuneGrid = data.frame(k = seq(1, 15, by = 2)), trControl = train_control)
+
+summary(knn_model)
+knn_model$results
+cat("KNN(k = 5) 10-fold Cross Validation accuracy: ", max(knn_model$results$Accuracy), ". \n")
+knn_predictions <- predict(knn_model, newdata = obesity_test_final)
+length(knn_predictions)
+knn_results <- data.frame(ID = seq(1, length(knn_predictions)), ObStatus = knn_predictions) # won't let me submit without 'ID'
+head(knn_results)
+dim(knn_results)
+# write.csv(knn_results, "knn_ObesitySol.csv", row.names = FALSE)
+
+
+
+
+
+# --- Random Forest --- #
+# https://www.geeksforgeeks.org/random-forest-approach-in-r-programming/
+# Also Chapter 8 Random forests/bagging
+set.seed(1)
+rf_model <- train(
+  ObStatus ~ .,
+  data = obesity_train_final,
+  method = "rf",
+  trControl = train_control
+)
+
+summary(rf_model)
+rf_model$results
+cat("Random Forest 10-fold CV Accuracy: ", max(rf_model$results$Accuracy), ".\n")
+
+rf_predictions <- predict(rf_model, newdata = obesity_test_final)
+rf_results <- data.frame(ID = seq(1, length(rf_predictions)), ObStatus = rf_predictions)
+# write.csv(rf_results, "rf_ObesitySol.csv", row.names = FALSE)
 ```
 
