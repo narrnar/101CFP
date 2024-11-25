@@ -256,3 +256,50 @@ library(gbm)
 
 ```
 
+#- -- MICE Impute Method --- #
+
+# Try on original data with NA's 
+impute_methods <- make.method(obesity_train)
+
+# Assign methods for categorical variables
+impute_methods["Race"] <- "polyreg"       # 4 levels
+impute_methods["MTRANS"] <- "polyreg"    # 5 levels
+impute_methods["CAEC"] <- "polyreg"      # 4 levels
+
+impute_methods["family_history_with_overweight"] <- "logreg"  # 2 levels
+impute_methods["FAVC"] <- "logreg"                            # 2 levels
+impute_methods["Gender"] <- "logreg"                          # 2 levels
+impute_methods["SCC"] <- "logreg"                             # 2 levels
+impute_methods["ever_married"] <- "logreg"                    # 2 levels
+
+# Assign 'pmm' for numeric predictors
+impute_methods[selected_numeric] <- "pmm"
+
+test_impute <- mice(obesity_train, m = 5, maxit = 50, method = impute_methods, seed = 500)
+summary(test_impute)
+
+completed <- complete(test_impute, )
+
+print(colSums(is.na(completed)))
+
+## Can try RF from here
+
+obesity_train_final <- completed[, c(selected_predictors, "ObStatus")]
+obesity_test_final <- completed[, selected_predictors]
+
+set.seed(1)
+rf_model <- train(
+  ObStatus ~ .,
+  data = obesity_train_final,
+  method = "rf",
+  trControl = train_control
+)
+
+summary(rf_model)
+rf_model$results
+cat("Random Forest 10-fold CV Accuracy: ", max(rf_model$results$Accuracy), ".\n")
+
+rf_predictions <- predict(rf_model, newdata = obesity_test_final)
+rf_results <- data.frame(ID = seq(1, length(rf_predictions)), ObStatus = rf_predictions)
+write.csv(rf_results, "newimpute_rf_ObesitySolution.csv", row.names = FALSE)
+
