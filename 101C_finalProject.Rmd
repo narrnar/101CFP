@@ -211,14 +211,22 @@ knn_model <- train(ObStatus ~ ., data = obesity_train_final, method = "knn", tun
 
 summary(knn_model)
 knn_model$results
-cat("KNN(k = 5) 10-fold Cross Validation accuracy: ", max(knn_model$results$Accuracy), ". \n")
+cat("KNN(k = 1 to 15 odd) 10-fold Cross Validation accuracy: ", max(knn_model$results$Accuracy), ". \n")
 knn_predictions <- predict(knn_model, newdata = obesity_test_final)
 length(knn_predictions)
 knn_results <- data.frame(ID = seq(1, length(knn_predictions)), ObStatus = knn_predictions) # won't let me submit without 'ID'
 head(knn_results)
 dim(knn_results)
 # write.csv(knn_results, "knn_ObesitySol.csv", row.names = FALSE)
+knn_model2 <- train(ObStatus ~ ., data = obesity_train_final, method = "knn", tuneGrid = data.frame(k = 1), trControl = train_control)
+summary(knn_model2)
+knn_model2$results
+cat("KNN(k = 1) 10-fold Cross Validation accuracy: ", max(knn_model2$results$Accuracy), ". \n")
 
+knn_model3 <- train(ObStatus ~ ., data = obesity_train_final, method = "knn", tuneGrid = data.frame(k = 5), trControl = train_control)
+summary(knn_model3)
+knn_model3$results
+cat("KNN(k = 5) 10-fold Cross Validation accuracy: ", max(knn_model3$results$Accuracy), ". \n")
 
 
 
@@ -241,5 +249,10 @@ cat("Random Forest 10-fold CV Accuracy: ", max(rf_model$results$Accuracy), ".\n"
 rf_predictions <- predict(rf_model, newdata = obesity_test_final)
 rf_results <- data.frame(ID = seq(1, length(rf_predictions)), ObStatus = rf_predictions)
 # write.csv(rf_results, "rf_ObesitySol.csv", row.names = FALSE)
+
+
+# --- Attempt Boosting --- #
+library(gbm)
+
 ```
 
